@@ -96,7 +96,7 @@ else:
 ano_selecionado = st.sidebar.selectbox("Ano", anos_disponiveis)
 
 # Tipo de Filtro Temporal
-tipo_filtro = st.sidebar.radio("Período", ["Ano Inteiro", "Mês Específico", "Período Personalizado (Estratégia)"])
+tipo_filtro = st.sidebar.radio("Período", ["Ano Inteiro", "Mês Específico", "Período Personalizado"])
 
 # Aplicação dos filtros de data
 if not df.empty and df['data'].notna().any():
@@ -109,7 +109,7 @@ if tipo_filtro == "Mês Específico" and not df_filtrado.empty:
     mes_selecionado = st.sidebar.selectbox("Mês", list(meses_nomes.keys()))
     df_filtrado = df_filtrado[df_filtrado['data'].dt.month == meses_nomes[mes_selecionado]]
 
-elif tipo_filtro == "Período Personalizado (Estratégia)" and not df_filtrado.empty:
+elif tipo_filtro == "Período Personalizado" and not df_filtrado.empty:
     data_inicio = st.sidebar.date_input("Início", df['data'].min() if df['data'].notna().any() else datetime.today())
     data_fim = st.sidebar.date_input("Fim", df['data'].max() if df['data'].notna().any() else datetime.today())
     df_filtrado = df_filtrado[(df_filtrado['data'].dt.date >= data_inicio) & (df_filtrado['data'].dt.date <= data_fim)]
