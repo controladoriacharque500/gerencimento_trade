@@ -59,58 +59,79 @@ if not st.session_state["logged_in"]:
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
-    # Carrega os dados limpando o cache para sempre trazer dados novos
     df = conn.read(worksheet="operacoes", ttl="0s")
-    df['data'] = pd.to_datetime(df['data'], format='%d/%m/%Y')
-    df['resultado'] = pd.to_numeric(df['resultado'])
+    # Se a planilha estiver vazia (só com cabeçalhos) ou sem linhas
+    if df.empty or len(df) == 0:
+        # Cria um DataFrame vazio com as colunas corretas e tipos definidos
+        df = pd.DataFrame(columns=['data', 'ativo', 'lado', 'contratos', 'resultado', 'observacoes'])
+        df['data'] = pd.to_datetime(df['data'])
+        df['resultado'] = pd.to_numeric(df['resultado'])
+        return df
+    
+    df['data'] = pd.to_datetime(df['data'], format='%d/%m/%Y', errors='coerce')
+    df['resultado'] = pd.to_numeric(df['resultado'], errors='coerce').fillna(0.0)
     return df
 
 try:
     df = load_data()
 except Exception as e:
-    st.error("Erro ao carregar os dados. Verifique a estrutura da planilha ou credenciais.")
+    st.error(f"Erro ao carregar os dados. Verifique a estrutura da planilha ou credenciais. Detalhe: {e}")
     st.stop()
 
 # ----------------- SIDEBAR & FILTROS -----------------
 st.sidebar.title("Navegação & Filtros")
 
-# Filtro de Anos Disponíveis
-df['ano'] = df['data'].dt.year
-df['mes_nome'] = df['data'].dt.strftime('%b')
-df['mes_num'] = df['data'].dt.month
+# Garante que as colunas auxiliares existam mesmo se o df estiver vazio
+if not df.empty and df['data'].notna().any():
+    df['ano'] = df['data'].dt.year
+    df['mes_nome'] = df['data'].dt.strftime('%b')
+    df['mes_num'] = df['data'].dt.month
+    anos_disponiveis = sorted(df['ano'].dropna().unique(), reverse=True)
+else:
+    df['ano'] = datetime.today().year
+    df['mes_nome'] = datetime.today().strftime('%b')
+    df['mes_num'] = datetime.today().month
+    anos_disponiveis = [datetime.today().year]
 
-anos_disponiveis = sorted(df['ano'].unique(), reverse=True)
 ano_selecionado = st.sidebar.selectbox("Ano", anos_disponiveis)
 
 # Tipo de Filtro Temporal
 tipo_filtro = st.sidebar.radio("Período", ["Ano Inteiro", "Mês Específico", "Período Personalizado (Estratégia)"])
 
 # Aplicação dos filtros de data
-df_filtrado = df[df['ano'] == ano_selecionado]
+if not df.empty and df['data'].notna().any():
+    df_filtrado = df[df['ano'] == ano_selecionado]
+else:
+    df_filtrado = df.copy()
 
-if tipo_filtro == "Mês Específico":
+if tipo_filtro == "Mês Específico" and not df_filtrado.empty:
     meses_nomes = {"Jan":1, "Feb":2, "Mar":3, "Apr":4, "May":5, "Jun":6, "Jul":7, "Aug":8, "Sep":9, "Oct":10, "Nov":11, "Dec":12}
     mes_selecionado = st.sidebar.selectbox("Mês", list(meses_nomes.keys()))
     df_filtrado = df_filtrado[df_filtrado['data'].dt.month == meses_nomes[mes_selecionado]]
 
-elif tipo_filtro == "Período Personalizado (Estratégia)":
-    data_inicio = st.sidebar.date_input("Início", df['data'].min())
-    data_fim = st.sidebar.date_input("Fim", df['data'].max())
-    df_filtrado = df[(df['data'].dt.date >= data_inicio) & (df['data'].dt.date <= data_fim)]
+elif tipo_filtro == "Período Personalizado (Estratégia)" and not df_filtrado.empty:
+    data_inicio = st.sidebar.date_input("Início", df['data'].min() if df['data'].notna().any() else datetime.today())
+    data_fim = st.sidebar.date_input("Fim", df['data'].max() if df['data'].notna().any() else datetime.today())
+    df_filtrado = df_filtrado[(df_filtrado['data'].dt.date >= data_inicio) & (df_filtrado['data'].dt.date <= data_fim)]
 
-# Ordenar por data para os cálculos da curva de capital
-df_filtrado = df_filtrado.sort_values(by='data')
+# Ordenar por data
+if not df_filtrado.empty:
+    df_filtrado = df_filtrado.sort_values(by='data')
 
 # ----------------- CÁLCULO DE MÉTRICAS (KPIs) -----------------
-total_resultado = df_filtrado['resultado'].sum()
+total_resultado = df_filtrado['resultado'].sum() if not df_filtrado.empty else 0.0
 total_operacoes = len(df_filtrado)
 
-vitoriosas = df_filtrado[df_filtrado['resultado'] > 0]
-derrotas = df_filtrado[df_filtrado['resultado'] < 0]
-
-win_rate = (len(vitoriosas) / total_operacoes * 100) if total_operacoes > 0 else 0.0
-media_ganho = vitoriosas['resultado'].mean() if len(vitoriosas) > 0 else 0.0
-media_perda = derrotas['resultado'].mean() if len(derrotas) > 0 else 0.0
+if total_operacoes > 0:
+    vitoriosas = df_filtrado[df_filtrado['resultado'] > 0]
+    derrotas = df_filtrado[df_filtrado['resultado'] < 0]
+    win_rate = (len(vitoriosas) / total_operacoes * 100)
+    media_ganho = vitoriosas['resultado'].mean() if len(vitoriosas) > 0 else 0.0
+    media_perda = derrotas['resultado'].mean() if len(derrotas) > 0 else 0.0
+else:
+    win_rate = 0.0
+    media_ganho = 0.0
+    media_perda = 0.0
 
 # ----------------- CABEÇALHO DO DASHBOARD -----------------
 st.title("📈 Day Trade Dashboard")
@@ -118,7 +139,7 @@ st.caption("Registro diário e performance por mês e ano")
 
 # Linha de KPIs
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("RESULTADO", f"R$ {total_resultado:,.2f}", delta=None)
+col1.metric("RESULTADO", f"R$ {total_resultado:,.2f}")
 col2.metric("OPERAÇÕES", f"{total_operacoes}")
 col3.metric("WIN RATE", f"{win_rate:.1f}%")
 col4.metric("MÉDIA GANHO / PERDA", f"R$ {media_ganho:.2f} / R$ {media_perda:.2f}")
@@ -130,20 +151,21 @@ g1, g2 = st.columns(2)
 
 with g1:
     st.subheader("Performance mensal")
-    # Agrupar por mês do ano selecionado
-    df_mensal = df_filtrado.groupby('mes_nome')['resultado'].sum().reset_index()
-    # Ordenar meses logicamente
-    ordem_meses = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dez"]
-    df_mensal['mes_nome'] = pd.Categorical(df_mensal['mes_nome'], categories=ordem_meses, ordered=True)
-    df_mensal = df_mensal.sort_values('mes_nome')
-    
-    fig_barra = px.bar(
-        df_mensal, x='mes_nome', y='resultado',
-        color_discrete_sequence=['#00c853'],
-        template='plotly_dark'
-    )
-    fig_barra.update_layout(yaxis_title=None, xaxis_title=None, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-    st.plotly_chart(fig_barra, use_container_width=True)
+    if total_operacoes > 0:
+        df_mensal = df_filtrado.groupby('mes_nome')['resultado'].sum().reset_index()
+        ordem_meses = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        df_mensal['mes_nome'] = pd.Categorical(df_mensal['mes_nome'], categories=ordem_meses, ordered=True)
+        df_mensal = df_mensal.sort_values('mes_nome')
+        
+        fig_barra = px.bar(
+            df_mensal, x='mes_nome', y='resultado',
+            color_discrete_sequence=['#00c853'],
+            template='plotly_dark'
+        )
+        fig_barra.update_layout(yaxis_title=None, xaxis_title=None, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+        st.plotly_chart(fig_barra, use_container_width=True)
+    else:
+        st.info("Sem dados para exibir gráfico mensal.")
 
 with g2:
     st.subheader("Curva de capital")
@@ -178,7 +200,6 @@ with f1:
         
         if submit_op:
             if ativo_op:
-                # Criar nova linha formatada
                 nova_linha = pd.DataFrame([{
                     "data": data_op.strftime('%d/%m/%Y'),
                     "ativo": ativo_op,
@@ -188,11 +209,14 @@ with f1:
                     "observacoes": obs_op
                 }])
                 
-                # Concatenar com o dataframe original completo
                 df_original = conn.read(worksheet="operacoes")
-                df_atualizado = pd.concat([df_original, nova_linha], ignore_index=True)
                 
-                # Salvar de volta na planilha
+                # Se a planilha original estiver vazia de verdade, substitui o df
+                if df_original.empty or (len(df_original) == 1 and df_original.iloc[0].isna().all()):
+                    df_atualizado = nova_linha
+                else:
+                    df_atualizado = pd.concat([df_original, nova_linha], ignore_index=True)
+                
                 conn.update(worksheet="operacoes", data=df_atualizado)
                 st.success("Operação adicionada com sucesso!")
                 st.rerun()
@@ -201,18 +225,17 @@ with f1:
 
 with f2:
     st.subheader(f"Operações de {ano_selecionado}")
-    # Mostrar as operações mais recentes primeiro na tabela
-    df_exibicao = df_filtrado[['data', 'ativo', 'lado', 'resultado', 'observacoes']].sort_values(by='data', ascending=False)
-    
-    # Formatando a data de volta para string legível
-    df_exibicao['data'] = df_exibicao['data'].dt.strftime('%d/%m/%Y')
-    
-    # Exibir tabela estilizada
-    st.dataframe(
-        df_exibicao,
-        column_config={
-            "resultado": st.column_config.NumberColumn("Resultado", format="R$ %.2f"),
-        },
-        use_container_width=True,
-        hide_index=True
-    )
+    if total_operacoes > 0:
+        df_exibicao = df_filtrado[['data', 'ativo', 'lado', 'resultado', 'observacoes']].sort_values(by='data', ascending=False)
+        df_exibicao['data'] = df_exibicao['data'].dt.strftime('%d/%m/%Y')
+        
+        st.dataframe(
+            df_exibicao,
+            column_config={
+                "resultado": st.column_config.NumberColumn("Resultado", format="R$ %.2f"),
+            },
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.info("Nenhuma operação registrada ainda.")
