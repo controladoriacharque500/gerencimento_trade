@@ -118,31 +118,36 @@ elif tipo_filtro == "Período Personalizado" and not df_filtrado.empty:
 if not df_filtrado.empty:
     df_filtrado = df_filtrado.sort_values(by='data')
 
-# ----------------- CÁLCULO DE MÉTRICAS (KPIs) -----------------
+# ----------------- CÁLCULO DE MÉTRICAS (KPIs POR DIA OPERADO) -----------------
 total_resultado = df_filtrado['resultado'].sum() if not df_filtrado.empty else 0.0
-total_operacoes = len(df_filtrado)
 
-if total_operacoes > 0:
-    vitoriosas = df_filtrado[df_filtrado['resultado'] > 0]
-    derrotas = df_filtrado[df_filtrado['resultado'] < 0]
-    win_rate = (len(vitoriosas) / total_operacoes * 100)
-    media_ganho = vitoriosas['resultado'].mean() if len(vitoriosas) > 0 else 0.0
-    media_perda = derrotas['resultado'].mean() if len(derrotas) > 0 else 0.0
+if not df_filtrado.empty:
+    # Agrupa por data para consolidar o resultado financeiro de cada dia
+    df_diario = df_filtrado.groupby(df_filtrado['data'].dt.date)['resultado'].sum().reset_index()
+    
+    total_dias = len(df_diario)
+    dias_vitoriosos = df_diario[df_diario['resultado'] > 0]
+    dias_derrotas = df_diario[df_diario['resultado'] < 0]
+    
+    win_rate = (len(dias_vitoriosos) / total_dias * 100) if total_dias > 0 else 0.0
+    media_ganho_dia = dias_vitoriosos['resultado'].mean() if len(dias_vitoriosos) > 0 else 0.0
+    media_perda_dia = dias_derrotas['resultado'].mean() if len(dias_derrotas) > 0 else 0.0
 else:
+    total_dias = 0
     win_rate = 0.0
-    media_ganho = 0.0
-    media_perda = 0.0
+    media_ganho_dia = 0.0
+    media_perda_dia = 0.0
 
 # ----------------- CABEÇALHO DO DASHBOARD -----------------
 st.title("📈 Day Trade Dashboard")
 st.caption("Registro diário e performance por mês e ano")
 
-# Linha de KPIs
+# Linha de KPIs Atualizada
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("RESULTADO", f"R$ {total_resultado:,.2f}")
-col2.metric("OPERAÇÕES", f"{total_operacoes}")
-col3.metric("WIN RATE", f"{win_rate:.1f}%")
-col4.metric("MÉDIA GANHO / PERDA", f"R$ {media_ganho:.2f} / R$ {media_perda:.2f}")
+col2.metric("DIAS OPERADOS", f"{total_dias}")
+col3.metric("WIN RATE (DIAS)", f"{win_rate:.1f}%")
+col4.metric("MÉDIA GANHO / PERDA (DIA)", f"R$ {media_ganho_dia:.2f} / R$ {media_perda_dia:.2f}")
 
 st.markdown("---")
 
