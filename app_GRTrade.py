@@ -13,7 +13,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Estilização CSS para aproximar ao layout escuro/verde das imagens
+# Estilização CSS para ajustar o layout escuro e evitar quebras no card de métrica
 st.markdown("""
 <style>
     .reportview-container { background: #0e1117; }
@@ -22,6 +22,10 @@ st.markdown("""
         border: 1px solid #242b35;
         padding: 15px;
         border-radius: 10px;
+    }
+    div[data-testid="stMetricValue"] {
+        font-size: 1.6rem !important;
+        white-space: nowrap;
     }
     .stButton>button {
         background-color: #00c853;
@@ -60,9 +64,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
     df = conn.read(worksheet="operacoes", ttl="0s")
-    # Se a planilha estiver vazia (só com cabeçalhos) ou sem linhas
     if df.empty or len(df) == 0:
-        # Cria um DataFrame vazio com as colunas corretas e tipos definidos
         df = pd.DataFrame(columns=['data', 'ativo', 'lado', 'contratos', 'resultado', 'observacoes'])
         df['data'] = pd.to_datetime(df['data'])
         df['resultado'] = pd.to_numeric(df['resultado'])
@@ -81,7 +83,6 @@ except Exception as e:
 # ----------------- SIDEBAR & FILTROS -----------------
 st.sidebar.title("Navegação & Filtros")
 
-# Garante que as colunas auxiliares existam mesmo se o df estiver vazio
 if not df.empty and df['data'].notna().any():
     df['ano'] = df['data'].dt.year
     df['mes_nome'] = df['data'].dt.strftime('%b')
@@ -94,11 +95,8 @@ else:
     anos_disponiveis = [datetime.today().year]
 
 ano_selecionado = st.sidebar.selectbox("Ano", anos_disponiveis)
-
-# Tipo de Filtro Temporal
 tipo_filtro = st.sidebar.radio("Período", ["Ano Inteiro", "Mês Específico", "Período Personalizado"])
 
-# Aplicação dos filtros de data
 if not df.empty and df['data'].notna().any():
     df_filtrado = df[df['ano'] == ano_selecionado]
 else:
@@ -114,7 +112,6 @@ elif tipo_filtro == "Período Personalizado" and not df_filtrado.empty:
     data_fim = st.sidebar.date_input("Fim", df['data'].max() if df['data'].notna().any() else datetime.today())
     df_filtrado = df_filtrado[(df_filtrado['data'].dt.date >= data_inicio) & (df_filtrado['data'].dt.date <= data_fim)]
 
-# Ordenar por data
 if not df_filtrado.empty:
     df_filtrado = df_filtrado.sort_values(by='data')
 
@@ -142,12 +139,12 @@ else:
 st.title("📈 Day Trade Dashboard")
 st.caption("Registro diário e performance por mês e ano")
 
-# Linha de KPIs Atualizada
+# Linha de KPIs
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("RESULTADO", f"R$ {total_resultado:,.2f}")
 col2.metric("DIAS OPERADOS", f"{total_dias}")
 col3.metric("WIN RATE (DIAS)", f"{win_rate:.1f}%")
-col4.metric("MÉDIA GANHO / PERDA (DIA)", f"R$ {media_ganho_dia:.2f} / R$ {media_perda_dia:.2f}")
+col4.metric("MÉDIA GANHO / PERDA (DIA)", f"R$ {media_ganho_dia:.1f} / R$ {media_perda_dia:.1f}")
 
 st.markdown("---")
 
@@ -156,7 +153,7 @@ g1, g2 = st.columns(2)
 
 with g1:
     st.subheader("Performance mensal")
-    if total_operacoes > 0:
+    if total_dias > 0:
         df_mensal = df_filtrado.groupby('mes_nome')['resultado'].sum().reset_index()
         ordem_meses = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         df_mensal['mes_nome'] = pd.Categorical(df_mensal['mes_nome'], categories=ordem_meses, ordered=True)
@@ -174,7 +171,7 @@ with g1:
 
 with g2:
     st.subheader("Curva de capital")
-    if total_operacoes > 0:
+    if total_dias > 0:
         df_filtrado['acumulado'] = df_filtrado['resultado'].cumsum()
         fig_linha = px.line(
             df_filtrado, x='data', y='acumulado',
@@ -216,7 +213,6 @@ with f1:
                 
                 df_original = conn.read(worksheet="operacoes")
                 
-                # Se a planilha original estiver vazia de verdade, substitui o df
                 if df_original.empty or (len(df_original) == 1 and df_original.iloc[0].isna().all()):
                     df_atualizado = nova_linha
                 else:
@@ -230,7 +226,7 @@ with f1:
 
 with f2:
     st.subheader(f"Operações de {ano_selecionado}")
-    if total_operacoes > 0:
+    if total_dias > 0:
         df_exibicao = df_filtrado[['data', 'ativo', 'lado', 'resultado', 'observacoes']].sort_values(by='data', ascending=False)
         df_exibicao['data'] = df_exibicao['data'].dt.strftime('%d/%m/%Y')
         
